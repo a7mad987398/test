@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Secure Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/fingerprintjs2@2.1.0/dist/fingerprint2.min.js"></script>
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #1f1c2c, #928dab);
+            color: white;
+        }
+        .header {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 20px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .dashboard {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 15px rgba(0, 0, 0, 0.2);
+            text-align: center;
+            width: 90%;
+            max-width: 1200px;
+            backdrop-filter: blur(10px);
+        }
+        .product-list {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .product {
+            background: rgba(255, 255, 255, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+        }
+        .product img {
+            width: 100px;
+            border-radius: 5px;
+            transition: transform 0.3s;
+        }
+        .product img:hover {
+            transform: scale(1.1);
+        }
+        .product-details {
+            display: none;
+            margin-top: 10px;
+            font-size: 14px;
+            color: #ddd;
+        }
+        .summary {
+            margin-top: 20px;
+        }
+        button {
+            padding: 12px 25px;
+            background: #ff9800;
+            color: white;
+            border: none;
+            cursor: pointer;
+            border-radius: 5px;
+            font-size: 16px;
+            transition: 0.3s;
+        }
+        button:hover {
+            background: #e68900;
+        }
+        #admin-panel {
+            display: none;
+            background: white;
+            color: black;
+            padding: 20px;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">Total Price: $<span id="total-price">0</span></div>
+    <div class="dashboard">
+        <h1>Product Dashboard</h1>
+        <div class="product-list" id="product-list"></div>
+        <div class="summary">
+            <button id="submit-order">Submit Order</button>
+        </div>
+    </div>
+    
+    <div id="admin-panel">
+        <h2>Add New Product</h2>
+        <input type="text" id="product-name" placeholder="Product Name">
+        <input type="text" id="product-code" placeholder="Product Code">
+        <input type="number" id="product-price" placeholder="Price">
+        <input type="text" id="product-image" placeholder="Image URL">
+        <button onclick="addProduct()">Add Product</button>
+        <button onclick="closeAdminPanel()">Close</button>
+    </div>
+
+    <script>
+        const adminPassword = "a7ahawagmc19"; // Password for admin access
+        const productList = document.getElementById("product-list");
+        let totalPrice = 0; 
+
+        // Generate a unique machine ID using FingerprintJS
+        function generateFingerprint() {
+            return new Promise((resolve, reject) => {
+                Fingerprint2.get(function(components) {
+                    const fingerprint = Fingerprint2.x64hash128(components.map(function(pair) { return pair.value; }).join(), 31);
+                    resolve(fingerprint);
+                });
+            });
+        }
+
+        // Function to check if admin access should be granted
+        async function checkAdminAccess() {
+            const storedFingerprint = await checkAndStoreFingerprint();
+            const adminFingerprint = localStorage.getItem('adminFingerprint');
+            
+            if (storedFingerprint === adminFingerprint) {
+                // Show admin panel
+                document.getElementById("admin-panel").style.display = "block";
+            } else {
+                // Ask for admin password and store fingerprint if correct
+                const password = prompt("Please enter the admin password:");
+                if (password === adminPassword) {
+                    const fingerprint = await generateFingerprint();
+                    localStorage.setItem('adminFingerprint', fingerprint);
+                    document.getElementById("admin-panel").style.display = "block";
+                } else {
+                    alert("Incorrect password. You do not have admin access.");
+                }
+            }
+        }
+
+        // Check and store the fingerprint once
+        async function checkAndStoreFingerprint() {
+            let storedFingerprint = localStorage.getItem('machineFingerprint');
+            
+            if (!storedFingerprint) {
+                // Generate a fingerprint and store it for first-time users
+                const fingerprint = await generateFingerprint();
+                localStorage.setItem('machineFingerprint', fingerprint);
+                storedFingerprint = fingerprint;
+            }
+            
+            return storedFingerprint;
+        }
+
+        // Load and display products from localStorage
+        function loadProducts() {
+            const savedProducts = JSON.parse(localStorage.getItem("products")) || [];
+            savedProducts.forEach(product => {
+                const productDiv = document.createElement("div");
+                productDiv.classList.add("product");
+                productDiv.setAttribute("data-name", product.name);
+                productDiv.setAttribute("data-price", product.price);
+                productDiv.setAttribute("data-code", product.code);
+                productDiv.innerHTML = `
+                    <img src="${product.image}" alt="${product.name}" class="product-img">
+                    <p>${product.name}</p>
+                    <p>Code: ${product.code}</p>
+                    <p>Price: $${product.price}</p>
+                    <input type="number" class="quantity" min="1" value="${product.quantity}" onchange="updatePrice()">
+                    <button onclick="editProduct('${product.code}')">Edit</button>
+                    <button onclick="deleteProduct('${product.code}')">Delete</button>
+                `;
+                productList.appendChild(productDiv);
+            });
+            updatePrice(); 
+        }
+
+        // Add new product to localStorage and reload the page
+        function addProduct() {
+            const name = document.getElementById("product-name").value;
+            const code = document.getElementById("product-code").value;
+            const price = parseFloat(document.getElementById("product-price").value);
+            const image = document.getElementById("product-image").value;
+
+            if (!name || !code || isNaN(price) || !image) {
+                alert("Please fill all fields correctly!");
+                return;
+            }
+
+            const product = {
+                name: name,
+                code: code,
+                price: price,
+                image: image,
+                quantity: 1
+            };
+
+            let savedProducts = JSON.parse(localStorage.getItem("products")) || [];
+            savedProducts.push(product);
+            localStorage.setItem("products", JSON.stringify(savedProducts));
+
+            const productDiv = document.createElement("div");
+            productDiv.classList.add("product");
+            productDiv.setAttribute("data-name", product.name);
+            productDiv.setAttribute("data-price", product.price);
+            productDiv.setAttribute("data-code", product.code);
+            productDiv.innerHTML = `
+                <img src="${product.image}" alt="${product.name}" class="product-img">
+                <p>${product.name}</p>
+                <p>Code: ${product.code}</p>
+                <p>Price: $${product.price}</p>
+                <input type="number" class="quantity" min="1" value="${product.quantity}" onchange="updatePrice()">
+                <button onclick="editProduct('${product.code}')">Edit</button>
+                <button onclick="deleteProduct('${product.code}')">Delete</button>
+            `;
+            productList.appendChild(productDiv);
+            totalPrice += price; 
+            updateTotalPrice();
+            closeAdminPanel();
+        }
+
+        // Edit product details
+        function editProduct(code) {
+            const savedProducts = JSON.parse(localStorage.getItem("products")) || [];
+            const product = savedProducts.find(p => p.code === code);
+            if (product) {
+                const name = prompt("Enter new name:", product.name);
+                const price = prompt("Enter new price:", product.price);
+                if (name && price) {
+                    product.name = name;
+                    product.price = parseFloat(price);
+                    localStorage.setItem("products", JSON.stringify(savedProducts));
+                    location.reload();
+                }
+            }
+        }
+
+        // Delete product from localStorage
+        function deleteProduct(code) {
+            const savedProducts = JSON.parse(localStorage.getItem("products")) || [];
+            const filteredProducts = savedProducts.filter(p => p.code !== code);
+            localStorage.setItem("products", JSON.stringify(filteredProducts));
+            location.reload();
+        }
+
+        // Update total price based on quantities
+        function updatePrice() {
+            totalPrice = 0;
+            const products = document.querySelectorAll('.product');
+            products.forEach(product => {
+                const price = parseFloat(product.getAttribute('data-price'));
+                const quantity = product.querySelector('.quantity').value;
+                totalPrice += price * quantity;
+            });
+            updateTotalPrice();
+        }
+
+        // Update the displayed total price
+        function updateTotalPrice() {
+            document.getElementById("total-price").textContent = totalPrice.toFixed(2);
+        }
+
+        // Close the admin panel
+        function closeAdminPanel() {
+            document.getElementById("admin-panel").style.display = "none";
+        }
+
+        // Initialize the app
+        async function init() {
+            await checkAdminAccess();
+            loadProducts();
+        }
+
+        // Run the init function
+        init();
+    </script>
+</body>
+</html>
